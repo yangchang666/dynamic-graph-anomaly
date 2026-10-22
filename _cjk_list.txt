@@ -1,0 +1,205 @@
+train.py:40: """参数影子滑动平均; swap 进出用于 eval. 部署形态 = 最终交出 shadow 权重."""
+train.py:52: sh[n] = p.data.clone()  # 零尺寸/动态尺寸参数直接同步
+train.py:147: else:  # <0 = 旧无界 loss
+train.py:157: else:  # <0 = 旧无界 loss
+train.py:191: """main_seed.test 的复刻 + 逐节点原始分数返回 (+可选 val 对比损失, 无标签)."""
+train.py:328: help="去掉 use_std 整条支路(统计量注入 + 原型分支), 退化为纯对比损失")
+train.py:330: help="每个 epoch 等距抽样存根节点表示(out)与原型头表示, 供表示可分性分析")
+train.py:332: help="--dump_rep 的抽样事件数")
+train.py:341: help="权重 EMA, eval/部署用 shadow 权重")
+train.py:344: help="余弦退火 lr -> 0")
+train.py:346: help=">0 时 AdamW weight decay")
+train.py:348: help=">0 时梯度范数裁剪")
+train.py:350: help="记录 val 对比损失 (无标签)")
+train.py:352: help="npz 文件名后缀")
+train.py:424: raise ValueError("main_fix 只支持 --aggr gps / gat")
+train.py:526: print(f"[val-loss dial] 最优 ep{lep:02d} (vloss={vl[lep-1]:.3f})")
+core\descriptors.py:2: 行为稳定性描述子 + 原型引导信号构造
+core\descriptors.py:5: 论文 DyG-PL 用 σ_v (hop1_time_std) 引导原型分配(硬 20/80 分桶)。诊断
+core\descriptors.py:6: (find_proto_signal.py) 表明 σ_v 不通用: wiki/reddit 强、mooc 弱、amazon 随机。
+core\descriptors.py:7: 本模块预计算一组"行为稳定性描述子", 并按数据集选出最佳引导信号, 供软分配原型使用。
+core\descriptors.py:9: 描述子(每个 [N], 因果=只用过去信息, 原始事件顺序):
+core\descriptors.py:10: sigma_v      hop1 间隔标准差 (论文信号, 经 loader 采样)
+core\descriptors.py:11: src_deg      源节点累计事件数
+core\descriptors.py:12: dst_deg      目标节点累计事件数
+core\descriptors.py:13: src_recency  距离源节点上一次交互的时间间隔
+core\descriptors.py:14: int_mean     源节点历史间隔均值
+core\descriptors.py:15: int_std      源节点历史间隔标准差
+core\descriptors.py:16: cv           变异系数 std/mean
+core\descriptors.py:19: 引导信号 g (标量, 定向为 low=anomalous):
+core\descriptors.py:20: - 取选定描述子, 用 train 统计做 z-score
+core\descriptors.py:21: - 用 train 标签确定方向: 若 train AUC<0.5 (high=anom) 则取反, 保证 low=anom
+core\descriptors.py:22: - 这样 p_low 自然成为"异常锚原型", 测试分数 cos(h, p_low) 与论文一致
+core\descriptors.py:24: 诊断结论(测试集 best-dir AUC)作为默认每集引导:
+core\descriptors.py:45: """因果时序/结构描述子. 返回 dict[name]->[N] (原始事件顺序)."""
+core\descriptors.py:70: """返回 dict {src_deg, dst_deg, ...} 每个 [N] float32. 带 npz 缓存.
+core\descriptors.py:71: 注: 不含 sigma_v —— sigma_v 走 batch.hop1_time_std 回退路径, 避免逐事件采样开销."""
+core\descriptors.py:86: """选定描述子 -> [N] z-score(train 统计), 定向 low=anomalous."""
+core\descriptors.py:106: f"(low=anom, 标准化于 train)")
+core\descriptors.py:115: """三信号并行引导: descs [num_events, 3] = z-scored (src_deg, σv, cv)。
+core\descriptors.py:117: 三信号不选不学, 各自 train z-score 后拼成 [N,3], 供 BlockMultiGPSModel 各注入一块。
+core\descriptors.py:118: σv 走与模型同路径的 hop1 采样(extract_std); 全程无监督(不用标签)。
+core\layer.py:67: use_std: bool = False,  # 新增参数：是否使用标准差特征
+core\layer.py:126: node_std: Optional[Tensor] = None,  # 新增参数：节点的标准差特征 [N, 1]
+core\layer.py:160: out = out + std_feat  # 相加融合
+core\layer.py:188: 增强的时序门控注意力层
+core\layer.py:190: 相比原版GatedTemporalGraphAttention的改进:
+core\layer.py:191: 1. 多头交叉注意力: Q来自源节点，K/V来自目标节点+边特征
+core\layer.py:192: 2. 双线性注意力评分: 替代简单点积，引入可学习权重矩阵W_attn
+core\layer.py:193: 3. 自适应门控融合: SSM输出作为门的调制信号，而非简单乘法
+core\layer.py:194: 4. 残差连接优化: 使用LayerNorm + 可学习残差系数
+core\layer.py:195: 5. 边特征深度编码: 独立的Edge MLP编码器
+core\layer.py:363: """按源节点分组的Softmax"""
+core\layer.py:380: 基于SSM的图卷积层(无Attention版本)
+core\layer.py:382: 核心逻辑：
+core\layer.py:383: 1. 利用SSM的可学习衰减矩阵A，根据时间差delta_t生成动态门控。
+core\layer.py:384: 2. 对邻居特征进行线性变换后，直接通过门控进行加权聚合。
+core\layer.py:385: 3. 摒弃QKV点积，专注于时序状态的平滑演化。
+core\layer.py:386: 4. 保留std_feat作为后期的统计校正项。
+core\layer.py:470: 矩增强时序卷积层 (Moment-Enhanced Temporal Convolution)
+core\layer.py:472: 核心思想：
+core\layer.py:473: 1. DeepSets 架构：保证对邻居集合的置换不变性。
+core\layer.py:474: 2. 矩增强 (Moment Augmentation)：不仅聚合均值，还聚合方差和偏度，
+core\layer.py:475: 以捕捉邻居分布的形状、离散程度和不对称性。
+core\layer.py:476: 3. SSM 时间门控：利用可学习的衰减系数处理不规则时间间隔。
+core\layer.py:554: var_m = F.relu(mean_sq - mean_m ** 2) # 确保非负
+core\layer.py:587: """定义 dh/dt = f(h, t) 的微分方程函数"""
+core\layer.py:592: nn.Tanh(), # Tanh 保证导数有界，利于数值稳定性
+core\layer.py:609: 动态矩增强 SSM 卷积层 (Refined Version)
+core\layer.py:611: 改进策略：
+core\layer.py:612: 1. 稳定主干：使用固定的、可学习的 SSM 参数进行时序演化，确保梯度稳定。
+core\layer.py:613: 2. 矩增强旁路：计算邻居的均值和方差，通过一个独立的 MLP 提取结构特征。
+core\layer.py:614: 3. 门控融合：学习一个门控信号，动态决定在每个节点上相信“时序演化”还是“空间统计”。
+core\layer.py:633: Linear(2 * out_channels, out_channels), # 输入 Mean 和 Var
+core\layer.py:699: A_disc = torch.exp(A * delta_t) # [E, C] - 广播机制自动处理
+core\layer.py:740: 神经常微分方程时序卷积层 (Neural ODE Temporal Convolution)
+core\layer.py:742: 核心思想：
+core\layer.py:743: 1. 将节点状态的演化建模为连续时间的常微分方程。
+core\layer.py:744: 2. 使用高精度的 ODE Solver (如 dopri5) 进行数值积分。
+core\layer.py:745: 3. 能够处理任意长度的时间间隔，具有极强的连续动态建模能力。
+core\layer.py:762: self.ode_func = ODEFunc(out_channels, edge_dim=0) # 内部聚合后维度不变
+core\layer.py:819: max_delta_t = max_delta_t.clamp(min=1e-6) # 避免除零
+core\layer.py:833: return self.ode_func.net[1](self.ode_func.net[0](diff)) # 简化映射
+core\layer.py:837: t_span = torch.linspace(0, 1, steps=10).to(x.device) # 归一化时间步
+core\layer.py:865: 稳定型门控时序注意力层 (SGTA)
+core\layer.py:867: 设计目标：解决 DGRTA 的原型坍缩问题，在 Alpha 数据集上实现稳健的性能提升。
+core\layer.py:869: 核心改进：
+core\layer.py:870: 1. 差分特征增强：利用 (x_j - x_i) 捕获局部突变，比乘积交互更适合异常检测。
+core\layer.py:871: 2. 可学习指数衰减：替代固定的 SSM，提供更灵活且稳定的时序权重分配。
+core\layer.py:872: 3. 纯净注意力机制：移除 Std 对注意力的干扰，确保聚合过程的鲁棒性。
+core\layer.py:973: diff_feat = self.diff_proj(x_i - x_j) # 捕获局部差异
+core\layer.py:1033: 稳健校正时序注意力层 (RCTA)
+core\layer.py:1035: 设计目标：继承 GTGA 的稳健性，通过“门控残差注入”机制，将 Std 特征作为
+core\layer.py:1036: 精准的校正项，避免原型坍缩和过度惩罚。
+core\layer.py:1038: 核心改进：
+core\layer.py:1039: 1. 差分增强查询：利用 (x_j - x_i) 捕获局部突变，增强对异常的感知。
+core\layer.py:1040: 2. 可学习衰减核：替代 SSM，提供更直观且稳定的时序权重分配。
+core\layer.py:1041: 3. 门控残差注入：Std 特征通过 Sigmoid 门控动态调节注入量，防止噪声干扰。
+core\layer.py:1077: self.diff_proj = Linear(in_channels, out_channels) # 用于处理 (x_j - x_i)
+core\layer.py:1148: diff_feat = self.diff_proj(x_i - x_j) # 捕获源-目标差异
+core\layer.py:1555: """全局 MHA 的 per-pair 时间结构偏置: 对数高斯核展开.
+core\layer.py:1558: w 初始 0 -> 退化原 MHA (训练前无偏置); log 尺度跨数据集一致 (秒~月统一).
+core\layer.py:1559: μ_k log 空间线性覆盖 [1s, t_max], σ=间距 (均固定); w 可学 per-head.
+core\layer.py:1566: self.w = nn.Parameter(torch.zeros(num_heads, K))  # 初始 0 = 无偏置
+core\layer.py:1567: self.scale = nn.Parameter(torch.tensor(float(scale_init)))  # bias 幅度, 挤进 attn_logit
+core\layer.py:1574: """node_time_dense: [N] 原始秒级. 返回 [num_heads, N, N] additive bias."""
+core\layer.py:1588: """Time-Gated Neighbor aggregation — 用 softmax 竞争替代 GINE sum 等权聚合.
+core\layer.py:1590: 设计原则:
+core\layer.py:1591: - softmax 提供邻居间选择能力 (GINE sum 无此能力, 是之前 9 种局部时间尝试全死的根因)
+core\layer.py:1592: - 时间通过 per-node 可学衰减系数 γ_i 参与选择: score = content + log(exp(-γ_i·Δt))
+core\layer.py:1593: - γ_i 初始化为小值 (≈0.13), 模型逐步学会按需开启时间选择
+core\layer.py:1594: - 轻量: 单头打分 (非 multi-head QKV), γ 只有标量输出
+core\layer.py:1596: 对节点 i 的每个邻居 j:
+core\layer.py:1597: content_ij = (W_q·x_i) · (W_k·[x_j|edge_attr]) / √d   # 内容相关性标量
+core\layer.py:1598: time_ij    = -softplus(γ_i) · Δt_j                      # 时间衰减 (log空间)
+core\layer.py:1599: score_ij   = content_ij + time_ij                       # 加性组合
+core\layer.py:1600: α_j        = softmax_per_source_i(score)                # 邻居竞争选择
+core\layer.py:1601: h_i        = Σ α_j · W_v·[x_j|edge_attr]                # 加权聚合
+core\layer.py:1656: """x: [N, C], edge_index: [2, E], edge_time: [E] (delta_t, 已time_difference),
+core\layer.py:1679: time_score = -gamma_src * delta_t                 # [E], 越近越大(越不负)
+core\layer.py:1708: """Per-source-softmax: 对每个 source 节点的入边分数做 softmax."""
+core\layer.py:1713: """门控 SSM 按时序扫描邻居 — 顺序依赖, 不能化为加权和.
+core\layer.py:1715: 与 TiGN / GINE / GatedTGAT 的本质区别:
+core\layer.py:1716: - GINE: sum, 无序, 无时间
+core\layer.py:1717: - TiGN: softmax 选邻居, 无序 (order-invariant)
+core\layer.py:1718: - GatedTGAT: attention 选邻居, 无序 (order-invariant)
+core\layer.py:1719: - GatedSSM: 按时序扫描, 顺序依赖 — 每个邻居到来时, 门控决定保留多少旧状态
+core\layer.py:1721: 结构:
+core\layer.py:1722: h_0 = W0·x_i                                    (从 source 状态出发)
+core\layer.py:1723: for k = 1..M (邻居按时序从旧到新):
+core\layer.py:1882: """源感知消息 + 独立时间门 — 每条边: content(source调制) × time_gate(scalar).
+core\layer.py:1884: 和 GINE 的差异:
+core\layer.py:1885: - GINE: msg = ReLU(h_j + edge_attr), 所有 source 收到同一条消息
+core\layer.py:1887: source h_i 参与消息内容构造
+core\layer.py:1888: gate 标量独立, 不强制作 softmax 竞争
+core\layer.py:1890: 聚合: sum (和 GINE 一样, O(E))
+core\layer.py:1891: 退化: W_s初始0 → 等价GINE; gate_bias初始-1 → 初始弱门控 → 逐步学
+core\layer.py:1977: """锚定版门控 SSM — 解决 GatedSSMNeighborAgg 的反馈环路漂移问题.
+core\layer.py:1979: 相对原 GatedSSM 的三项增强:
+core\layer.py:1980: 1. 源节点锚定: 门控/候选都加入 source embedding x_i (扫描全程不变的绝对参考系)
+core\layer.py:1983: → 嵌入空间漂移时, x_i 稳定, 门控不会被递归状态绑架
+core\layer.py:1984: 2. h_{k-1} 的 LayerNorm: 保证门控 sigmoid 输入尺度恒定, 不进饱和区
+core\layer.py:1985: 3. gate_bias 初始 0 → σ(0)=0.5 → 初始平等对待所有邻居
+core\layer.py:1987: 其余 (padding/cumprod并行分块/输出融合) 与 GatedSSMNeighborAgg 一致.
+core\layer.py:2005: self.gate_bias = nn.Parameter(torch.zeros(1))   # 初始 σ(0)=0.5
+core\layer.py:2115: h_normed = self.h_norm(h)                                 # [B, C] 尺度稳定
+core\layer.py:2116: src_term_g = self.S_g(x_src).unsqueeze(1)                # [B, 1, C] 锚
+core\layer.py:2117: src_term_z = self.S_z(x_src).unsqueeze(1)                # [B, 1, C] 锚
+core\loader.py:148: hop1_event_times = None  # 用于存储一跳邻居的时间戳
+core\loader.py:281: hop1_time_std_list = []  # 存储一跳邻居的时间间隔标准差
+core\loader.py:287: root_time = float(self.data.t[index])  # 根事件的时间戳（转为浮点数）
+core\loader.py:313: hop1_time_std_list = []  # 存储一跳邻居的时间间隔标准差
+core\model.py:24: use_std: bool = False,  # 新增参数：是否使用标准差特征
+core\model.py:25: use_single_proto: bool = False, # 新增参数：是否使用单原型
+core\model.py:44: use_std=use_std,  # 传递 use_std 参数
+core\model.py:119: """使用 EMA 更新全局原型"""
+core\model.py:138: node_std: Optional[Tensor] = None,  # 新增参数：节点的标准差特征 [N, 1]
+core\model.py:153: """获取用于原型学习的独立表示"""
+core\model.py:273: """全局 MHA 注入 per-pair 时间结构偏置 (对数高斯核, 可学非线性, per-head).
+core\model.py:275: 时间只进 attn_mask (结构偏置, 正交叠加), 不进 K/V. node_time 用原始秒级 (对数核跨尺度).
+core\model.py:276: 局部 MPNN + FFN 不变. 与 TemporalGPSConv(固定线性 -Δt/τ) 并列, 由 temporal_global_kernel 切换.
+core\model.py:317: 基于GraphGPS的时序异常检测模型
+core\model.py:318: 融合std特征和原型学习，通过全局注意力增强原型对齐质量
+core\model.py:331: gps_local_type: str = 'GINEConv',  # 局部MPNN类型 (GINEConv 为最终配置的甜点)
+core\model.py:332: gps_heads: int = 4,  # 注意力头数
+core\model.py:333: gps_dropout: float = 0.0,  # GPS内部的dropout
+core\model.py:336: time_kernel_K: int = 8,  # 高斯核个数
+core\model.py:337: time_kernel_scale: float = 5.0,  # bias 幅度(挤进 attn_logit)
+core\model.py:426: """Gram-Schmidt正交化，确保high/low原型分离"""
+core\model.py:460: """EMA更新全局原型（与原模型保持一致）"""
+core\model.py:479: edge_time: Tensor,  # GPS不需要时间编码，但保留接口兼容性
+core\model.py:484: 编码函数：融合std特征并通过GPS layers
+core\model.py:513: """解码函数（与原模型保持一致）"""
+core\model.py:518: """获取用于原型学习的独立表示"""
+core\model.py:530: """前向传播"""
+core\model.py:625: """GPS 风格混合层: 局部 TiGN (时间门控邻居选择) + 全局 MHA + 可选 kernel 时间偏置.
+core\model.py:627: 与 TemporalKernelGPSConv 的核心区别:
+core\model.py:628: - 局部: TiGNConv (softmax 邻居竞争 + per-node 时间敏感度) 替代 GINE sum
+core\model.py:629: - 全局: 手动 MHA (支持 per-head 时间偏置) 替代 PyG MultiheadAttention
+core\model.py:630: - 不再依赖 PyG GPSConv 基类, 完全自主控制 forward 流程
+core\model.py:711: """GPS 变体: 局部聚合用 TiGN (时间门控邻居选择) 替代 GINE sum.
+core\model.py:713: 与 StdGPSModel 的区别:
+core\model.py:714: - 局部: TiGNConv (softmax nbr competition + per-edge time gate + per-node γ)
+core\model.py:715: 替代 GINEConv (uniform sum aggregation)
+core\model.py:716: - 全局: 手动 MHA (同 TiGNGPSConv)
+core\model.py:717: - 其余组件 (编码器/解码器/原型) 与 StdGPSModel 完全一致
+core\model.py:719: 开关: --aggr gps --local_tign
+core\model.py:890: """GPS 风格混合层: 局部 GatedSSM + 全局 MHA (PyG, 与原版 GPSConv 一致)."""
+core\model.py:958: """GPS 变体: 局部聚合用 GatedSSM (顺序依赖时序扫描) 替代 GINE sum.
+core\model.py:960: 与 TiGNGPSModel 的区别:
+core\model.py:961: - 局部: GatedSSMNeighborAgg (order-dependent序列扫描)
+core\model.py:962: 替代 TiGNConv (order-invariant softmax 选择)
+core\model.py:963: - 其余完全一致
+core\model.py:965: 开关: --aggr gps --local_ssm
+core\model.py:1130: """GPS 混合层: 局部 SrcAwareGateConv + 全局 MHA."""
+core\model.py:1185: """GPS 变体: 局部 SrcAwareGateConv. 开关: --aggr gps --local_sag"""
+core\model.py:1276: """GPS 风格混合层: 局部 AnchoredGatedSSM (源锚定+LN(h)+gate bias) + 全局 MHA.
+core\model.py:1278: 与 SSMGPSConv 的唯一区别: local_conv = AnchoredGatedSSMNeighborAgg.
+core\model.py:1279: 解决 SSM 反馈环路漂移 (训练中后期对比基线退化).
+core\model.py:1469: """建一条 GPS 栈(给定 channels)。GINE(默认) 或 GatedSSM(--local_ssm)。"""
+core\model.py:1497: """运行一条 GPS 栈(SSM 走 edge_time_delta, GINE 走原始 edge_time)。"""
+core\model.py:1529: assert hidden_channels % n_proto == 0, f"H={hidden_channels} 必须整除 n_proto={n_proto}"
+core\model.py:1531: assert d % gps_heads == 0, f"块宽 d={d} 必须整除 heads={gps_heads}"
+core\model.py:1614: """返回拼接 h[N, H] = 三块(d=H/3) cat, 含 cv/degree/σv 三特征(各在不相交子空间)。"""
+core\model.py:1627: xi = xi + self.std_encoders[i](descs[:, i:i + 1])   # 信号 i 注入块 i
+core\model.py:1635: """h: [B, H] -> 三块各过 proto_head[i], 返回 3 × [B, d]。"""

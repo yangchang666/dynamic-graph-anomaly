@@ -9,6 +9,7 @@ import logging
 import os
 import os.path as osp
 import random
+import sys
 
 import numpy as np
 import torch
@@ -37,7 +38,7 @@ def set_seed(seed: int):
 
 
 class EMA:
-    """参数影子滑动平均; swap 进出用于 eval. 部署形态 = 最终交出 shadow 权重."""
+    """Shadow copy of the parameters, swapped in for evaluation."""
 
     def __init__(self, modules, decay):
         self.decay = decay
@@ -49,7 +50,7 @@ class EMA:
         for sh, m in zip(self.shadow, self.modules):
             for n, p in m.named_parameters():
                 if p.numel() == 0 or sh[n].shape != p.data.shape:
-                    sh[n] = p.data.clone()  # 零尺寸/动态尺寸参数直接同步
+                    sh[n] = p.data.clone()
                     continue
                 sh[n].mul_(self.decay).add_(p.data, alpha=1 - self.decay)
 
@@ -144,7 +145,7 @@ def train(loader, model, history, optimizer, device, data, args, guide_signal=No
                         loss_low = -sim_low[low_mask].mean()
                         if args.proto_sep_margin >= 0:
                             loss_proto = (loss_high + loss_low) / 2.0 + (proto_sep.mean() + args.proto_sep_margin).clamp(min=0)
-                        else:  # <0 = 旧无界 loss
+                        else:
                             loss_proto = (loss_high + loss_low) / 2.0 + proto_sep.mean()
                         proto_active = True
                 else:
@@ -154,7 +155,7 @@ def train(loader, model, history, optimizer, device, data, args, guide_signal=No
                     loss_low = -(w_low * sim_low).sum() / (w_low.sum() + 1e-8)
                     if args.proto_sep_margin >= 0:
                         loss_proto = (loss_high + loss_low) / 2.0 + (proto_sep.mean() + args.proto_sep_margin).clamp(min=0)
-                    else:  # <0 = 旧无界 loss
+                    else:
                         loss_proto = (loss_high + loss_low) / 2.0 + proto_sep.mean()
                     proto_active = True
 
@@ -188,7 +189,8 @@ def train(loader, model, history, optimizer, device, data, args, guide_signal=No
 @torch.no_grad()
 def test(loader, model, history, measure, device, data, args, guide_signal=None, want_loss=False,
          update=True, rep_buf=None):
-    """main_seed.test 的复刻 + 逐节点原始分数返回 (+可选 val 对比损失, 无标签)."""
+    """Evaluation pass returning the raw per-event scores, and optionally the validation
+    contrastive loss, which uses no labels."""
     bases, protos, labels, sim_highs, sim_lows = [], [], [], [], []
     loss_sum, loss_n = 0.0, 0
     model.eval()
@@ -325,38 +327,70 @@ def read_parser():
     parser.add_argument("--gps_local_type", type=str, default='GINEConv')
     parser.add_argument("--proto_train_encoder", action="store_true", default=False)
     parser.add_argument("--no_std", action="store_true", default=False,
-                        help="去掉 use_std 整条支路(统计量注入 + 原型分支), 退化为纯对比损失")
+                        help="drop the descriptor injection and the prototype branch, leaving the contrastive loss")
     parser.add_argument("--dump_rep", action="store_true", default=False,
-                        help="每个 epoch 等距抽样存根节点表示(out)与原型头表示, 供表示可分性分析")
+                        help="store sampled root representations at every epoch")
     parser.add_argument("--dump_rep_n", type=int, default=3000,
-                        help="--dump_rep 的抽样事件数")
+                        help="number of events sampled by --dump_rep")
     parser.add_argument("--lambda_proto", type=float, default=1.0)
     parser.add_argument("--real_history", action="store_true", default=False)
     parser.add_argument("--mem_from_out", action="store_true", default=False)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--proto_sep_margin", type=float, default=-1.0,
                         help="prototype separation margin; -1.0 disables it")
-    # ===== v2 稳定化仪器 (默认全关 = 原行为) =====
     parser.add_argument("--ema", action="store_true", default=False,
-                        help="权重 EMA, eval/部署用 shadow 权重")
+                        help="exponential moving average of the weights")
     parser.add_argument("--ema_decay", type=float, default=0.999)
     parser.add_argument("--cosine_lr", action="store_true", default=False,
-                        help="余弦退火 lr -> 0")
+                        help="cosine annealing of the learning rate")
     parser.add_argument("--wd", type=float, default=0.0,
-                        help=">0 时 AdamW weight decay")
+                        help="weight decay, used when > 0")
     parser.add_argument("--grad_clip", type=float, default=0.0,
-                        help=">0 时梯度范数裁剪")
+                        help="gradient norm clipping, used when > 0")
     parser.add_argument("--val_loss", action="store_true", default=False,
-                        help="记录 val 对比损失 (无标签)")
+                        help="record the validation contrastive loss")
     parser.add_argument("--out_tag", type=str, default="",
-                        help="npz 文件名后缀")
+                        help="suffix of the npz file name")
     args = parser.parse_args()
     print(args)
     return args
 
 
+DATASET_PRESETS = {
+    "wikipedia": dict(aggr="gps", hidden_channels=128, heads=4, proto_guide="sigma_v",
+                      assign="hard", lr=5e-4, local_ssm=True, time_kernel_K=8,
+                      kernel_scale=5.0, dropout=0.5, sample_strategy="recent",
+                      num_neighbors=[15, 10], epochs=20, proto_sep_margin=0.3),
+    "reddit": dict(aggr="gps", local_ssm=True, ssm_log_space=True, no_global_attn=True,
+                   proto_guide="cv", assign="hard", sample_strategy="random", zero_edge=True,
+                   num_neighbors=[30, 15], hidden_channels=128, heads=4, dropout=0.5,
+                   lr=5e-4, epochs=20, proto_sep_margin=0.3),
+    "mooc": dict(aggr="gps", local_ssm=True, proto_guide="src_deg", assign="hard",
+                 mem_from_out=True, sample_strategy="recent", num_neighbors=[15, 10],
+                 hidden_channels=128, heads=4, dropout=0.5, lr=5e-4, epochs=20,
+                 proto_sep_margin=0.3),
+    "alpha": dict(aggr="gps", hidden_channels=128, heads=4, proto_guide="sigma_v",
+                  assign="hard", lr=2e-4, temporal_global_kernel=True, time_kernel_K=4,
+                  kernel_scale=1.0, dropout=0.5, num_neighbors=[15, 10], epochs=20,
+                  proto_sep_margin=0.3),
+    "otc": dict(aggr="gps", hidden_channels=128, heads=4, proto_guide="sigma_v",
+                assign="hard", lr=2e-4, temporal_global_kernel=True, time_kernel_K=4,
+                kernel_scale=1.0, dropout=0.5, num_neighbors=[15, 10], epochs=20,
+                proto_sep_margin=0.3),
+}
+
+
+def apply_preset(args, argv):
+    """Fill in the per-dataset configuration for every option not given on the command line."""
+    preset = DATASET_PRESETS.get(args.dataset, {})
+    for key, value in preset.items():
+        if f"--{key}" not in argv:
+            setattr(args, key, value)
+    return args
+
+
 if __name__ == '__main__':
-    args = read_parser()
+    args = apply_preset(read_parser(), sys.argv[1:])
     if not os.path.exists('log'):
         os.makedirs('log')
     logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s",
@@ -413,7 +447,6 @@ if __name__ == '__main__':
             model = StdGPSModel(**gps_kw, gps_local_type=args.gps_local_type).to(device)
     elif args.aggr == 'gat':
         # encoder-replacement ablation: swap in the GatedTGAT encoder, keep everything else.
-        # gps 专属参数在此分支不适用, 且 gat 无全局注意力。
         model = GatedTGAT(
             in_channels=data.x.size(1), out_channels=1,
             hidden_channels=args.hidden_channels, edge_dim=data.msg.size(1),
@@ -421,7 +454,7 @@ if __name__ == '__main__':
             use_std=not args.no_std, use_single_proto=False,
         ).to(device)
     else:
-        raise ValueError("main_fix 只支持 --aggr gps / gat")
+        raise ValueError("--aggr must be gps or gat")
     print(model)
     print(history)
 
@@ -443,7 +476,6 @@ if __name__ == '__main__':
                      guide_signal=guide_signal, ema=ema)
         if scheduler is not None:
             scheduler.step()
-        # 1) 原始权重评估 (update=True, 与既有评估行为一致)
         v_out = test(valid_loader, model, history, measure, device, data, args,
                      guide_signal=guide_signal, want_loss=args.val_loss)
         v_aucs, v_base, v_proto, v_sh, v_sl, v_y, v_loss = v_out
@@ -456,7 +488,6 @@ if __name__ == '__main__':
             store[f"t_prep_e{epoch}"] = torch.cat(rep_buf[1]).numpy().astype(np.float32)
             if "t_rep_idx" not in store:
                 store["t_rep_idx"] = torch.cat(rep_buf[2]).numpy().astype(np.int32)
-        # 2) EMA 同跑配对: swap 后 update=False (history 冻结 -> 隔离权重效应, 不扰动训练)
         if ema is not None:
             ema.swap()
             _, ev_base, ev_proto, ev_sh, ev_sl, _, _ = test(
@@ -495,7 +526,6 @@ if __name__ == '__main__':
     np.savez_compressed(npz_path, **store)
     print("saved:", npz_path)
 
-    # ===== 融合对照: 各变体各自 val 最优 epoch 的 test AUC + 天花板 =====
     variants = {}
     for ep in range(1, 1 + args.epochs):
         vb = torch.from_numpy(store[f"v_base_e{ep}"]); vp = torch.from_numpy(store[f"v_proto_e{ep}"])
@@ -523,4 +553,4 @@ if __name__ == '__main__':
     if f"v_loss_e{args.epochs}" in store:
         vl = [store[f"v_loss_e{e}"] for e in range(1, 1 + args.epochs)]
         lep = int(np.argmin(vl)) + 1
-        print(f"[val-loss dial] 最优 ep{lep:02d} (vloss={vl[lep-1]:.3f})")
+        print(f"[val-loss] best epoch {lep:02d} (vloss={vl[lep-1]:.3f})")

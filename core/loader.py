@@ -145,15 +145,13 @@ class SamplingDataset(Dataset):
         root = [root]
         time = [time]
         event_ids = []
-        hop1_event_times = None  # 用于存储一跳邻居的时间戳
+        hop1_event_times = None
         for i, num_neighbors in enumerate(self.num_neighbors):
             event_id = self.sample(root, time, num_neighbors)
             if len(event_id) == 0:
                 # stop sampling at the first step with empty neighbors
                 break
-            # 记录一跳邻居的时间戳（第一轮采样）
             if i == 0 and len(event_id) > 0:
-                # 采样时已经按时间降序排序（最近的在前），需要反转为升序
                 hop1_event_times = self.data.t[event_id].flip(0)
             root = self.data.dst[event_id]
             event_ids.append(event_id)
@@ -278,17 +276,16 @@ class SamplingDataset(Dataset):
 class EventBasedSamplingDataset(SamplingDataset):
     def __getitem__(self, index: int) -> Tensor:
         event_ids = []
-        hop1_time_std_list = []  # 存储一跳邻居的时间间隔标准差
+        hop1_time_std_list = []
         num_trials = len(self.nodes_or_events)
         for i in range(num_trials):
             time = self.input_time[i][index]
             index = self.nodes_or_events[i][index]
             root = self.data.src[index]
-            root_time = float(self.data.t[index])  # 根事件的时间戳（转为浮点数）
+            root_time = float(self.data.t[index])
             index = index.unsqueeze(0)
             event_id, hop1_event_times = self.subgraph_events(root=root, time=time)
             
-            # 1. 计算相邻一跳邻居之间的时间间隔标准差
             if hop1_event_times is not None and len(hop1_event_times) > 1:
                 hop1_intervals = [(hop1_event_times[j+1].float() - hop1_event_times[j].float()).unsqueeze(0)
                                   for j in range(len(hop1_event_times)-1)]
@@ -303,21 +300,19 @@ class EventBasedSamplingDataset(SamplingDataset):
 
             event_id = torch.cat([index, event_id])  # TODO: remove redudant
             event_ids.append(event_id)
-        # 合并所有 trial 的 event_ids
         return torch.cat(event_ids), torch.stack(hop1_time_std_list)
 
 
 class NodeBasedSamplingDataset(SamplingDataset):
     def __getitem__(self, index: int) -> Tensor:
         event_ids = []
-        hop1_time_std_list = []  # 存储一跳邻居的时间间隔标准差
+        hop1_time_std_list = []
         num_trials = len(self.nodes_or_events)
         for i in range(num_trials):
             time = self.input_time[i][index]
             root = self.nodes_or_events[i][index]
             event_id, hop1_event_times = self.subgraph_events(root=root, time=time)
             
-            # 1. 计算相邻一跳邻居之间的时间间隔标准差
             root_time = float(time)
             if hop1_event_times is not None and len(hop1_event_times) > 1:
                 hop1_intervals = [(hop1_event_times[j+1].float() - hop1_event_times[j].float()).unsqueeze(0)
@@ -332,7 +327,6 @@ class NodeBasedSamplingDataset(SamplingDataset):
             hop1_time_std_list.append(hop1_time_std)
             
             event_ids.append(event_id)
-        # 合并所有 trial 的 event_ids
         return torch.cat(event_ids), torch.stack(hop1_time_std_list)
 
 
@@ -341,7 +335,6 @@ class Collater:
         self.data = data
 
     def gather(self, batch):
-        # batch 现在是一个元组：(event_ids, hop1_time_std)
         event_ids_list = [b[0] for b in batch]
         hop1_time_stds = torch.stack([b[1] for b in batch])  # [batch_size, 1]
         
@@ -371,7 +364,6 @@ class Collater:
         data.input_id = root_event
         data.batch_size = root_event.size(0)
         
-        # --- 特征标准化 (Min-Max Normalization per Batch) ---
         raw_std = hop1_time_stds.squeeze(-1)  # [batch_size]
         min_val = raw_std.min()
         max_val = raw_std.max()
@@ -384,6 +376,4 @@ class Collater:
         return data
 
     def __call__(self, batch):
-        # batch 是 [(event_ids, hop1_time_std), ...] 列表
-        # 直接调用 gather 处理整个 batch，返回单个 Data 对象
         return self.gather(batch)
