@@ -23,24 +23,17 @@ structure, not node attributes.
 python train.py --dataset alpha --seed 1
 ```
 
-The five datasets are `wikipedia`, `reddit`, `mooc`, `alpha` and `otc`. The main
-hyperparameters of each one are listed below; they are set in `DATASET_PRESETS` in `train.py`
-and any of them can be overridden on the command line, for example
+The datasets are `wikipedia`, `reddit`, `mooc`, `alpha` and `otc`. The configuration of each
+one is set in `DATASET_PRESETS` in `train.py`, and every option can be overridden on the
+command line, for example
 
 ```bash
-python train.py --dataset alpha --seed 1 --epochs 30 --lr 1e-4 --gpu 1
+python train.py --dataset wikipedia --seed 1 --epochs 30 --lr 1e-4 --gpu 1
 ```
 
-| dataset | lr | hidden | heads | dropout | neighbours | epochs |
-| --- | --- | --- | --- | --- | --- | --- |
-| wikipedia | 5e-4 | 128 | 4 | 0.5 | 15 / 10 | 20 |
-| reddit | 5e-4 | 128 | 4 | 0.5 | 30 / 15 | 20 |
-| mooc | 5e-4 | 128 | 4 | 0.5 | 15 / 10 | 20 |
-| alpha | 2e-4 | 128 | 4 | 0.5 | 15 / 10 | 20 |
-| otc | 2e-4 | 128 | 4 | 0.5 | 15 / 10 | 20 |
-
-Batch size is 256, the encoder is the GPS stack and the prototype assignment uses the hard
-split with a separation margin of 0.3.
+For `wikipedia` the model uses a learning rate of 5e-4, 128 hidden channels, 4 heads,
+dropout 0.5, 15 and 10 neighbours in the two sampling hops, 20 epochs, batch size 256 and a
+prototype separation margin of 0.3.
 
 ## Protocol
 
