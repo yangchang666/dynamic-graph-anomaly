@@ -4,3 +4,4 @@ selection_out/
 __pycache__/
 *.npz
 *.pyc
+*.txt
